@@ -92,7 +92,7 @@ python -m app.main
 ## 📦 Скачать готовую версию
 
 Скачайте готовое приложение здесь:
-👉 https://github.com/your-username/osm-offline-demo/releases
+👉 https://github.com/Ankettta/osm_offline_demo/releases/tag/v1.0
 
 Распакуйте архив и запустите `.exe`
 ```
