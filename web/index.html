@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>OSM Offline Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css" />
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+    }
+
+    #toolbar {
+      min-height: 84px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid #d1d5db;
+      background: #ffffff;
+      flex-wrap: wrap;
+      box-sizing: border-box;
+    }
+
+    #map {
+      height: calc(100% - 178px);
+      width: 100%;
+    }
+
+    #assistant {
+      min-height: 94px;
+      padding: 14px 16px;
+      border-top: 1px solid #d1d5db;
+      background: #ffffff;
+      color: #111827;
+      box-sizing: border-box;
+    }
+
+    .toolbar-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-right: 12px;
+      color: #111827;
+    }
+
+    .label {
+      font-size: 14px;
+      color: #374151;
+    }
+
+    button, select {
+      padding: 9px 12px;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button {
+      background: #64748b;
+      color: white;
+      border: none;
+      font-weight: 600;
+      transition: background 0.2s ease;
+    }
+
+    button:hover {
+      background: #475569;
+    }
+
+    #status {
+      color: #4b5563;
+      font-size: 14px;
+      margin-left: 8px;
+    }
+
+    .assistant-title {
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #111827;
+    }
+
+    .assistant-text {
+      color: #374151;
+      line-height: 1.4;
+    }
+
+    .legend {
+      background: white;
+      padding: 10px 12px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+      border: 1px solid #e5e7eb;
+      line-height: 1.5;
+      font-size: 13px;
+      color: #111827;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0;
+    }
+
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+
+    .legend-blue {
+      background: #2563eb;
+    }
+
+    .legend-red {
+      background: rgba(239, 68, 68, 0.78);
+    }
+
+    .legend-user {
+      background: #111827;
+    }
+
+    .legend-target {
+      background: #16a34a;
+    }
+
+    .legend-route {
+      width: 18px;
+      height: 3px;
+      border-radius: 4px;
+      background: #16a34a;
+      display: inline-block;
+    }
+
+    .user-label {
+      background: #111827;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .target-label {
+      background: #16a34a;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .vector-label {
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <div class="toolbar-title">Crowd no crowd map</div>
+
+    <span class="label">Карта:</span>
+    <select id="mapModeSelect" onchange="switchMapMode()">
+      <option value="offline">Offline PNG</option>
+      <option value="online">Online OSM</option>
+    </select>
+
+    <span class="label">Сценарий:</span>
+    <select id="scenarioSelect"></select>
+
+    <span class="label">Позиция пользователя:</span>
+    <select id="userPointSelect"></select>
+
+    <span class="label">Режим:</span>
+    <select id="modeSelect">
+      <option value="to_crowd">К активной зоне</option>
+      <option value="avoid_crowd">В обход скоплений</option>
+    </select>
+
+    <button onclick="runAnalysis()">Запустить анализ</button>
+    <span id="status">Режим карты: offline PNG</span>
+  </div>
+
+  <div id="map"></div>
+
+  <div id="assistant">
+    <div class="assistant-title">Интеллектуальный ассистент</div>
+    <div class="assistant-text" id="assistantText">
+      Выберите сценарий, стартовую позицию пользователя и режим движения. После запуска система построит карту плотности и покажет рекомендуемое направление.
+    </div>
+  </div>
+
+  <script src="/static/vendor/leaflet/leaflet.js"></script>
+  <script src="/static/vendor/leaflet-heat/leaflet-heat.js"></script>
+  <script>
+    L.Icon.Default.imagePath = '/static/vendor/leaflet/images/';
+  </script>
+
+  <script>
+    const bounds = [
+      [59.9225, 30.2942],
+      [59.9449, 30.3677]
+    ];
+
+    const map = L.map('map', {
+      minZoom: 13,
+      maxZoom: 18,
+      maxBounds: bounds,
+      maxBoundsViscosity: 1.0,
+      zoomControl: true
+    }).setView([59.935181, 30.325008], 16);
+
+    let baseLayer = null;
+    let heatLayer = null;
+    let pointLayers = [];
+    let hotspotLayers = [];
+    let userLayer = null;
+    let userLabel = null;
+    let targetLayer = null;
+    let targetLabel = null;
+    let routeLayer = null;
+    let arrowHeadLayer = null;
+    let vectorLabel = null;
+
+    function setOfflineLayer() {
+      if (baseLayer) {
+        map.removeLayer(baseLayer);
+      }
+
+      baseLayer = L.imageOverlay('/static/assets/base_map.png', bounds);
+      baseLayer.addTo(map);
+
+      document.getElementById('status').innerText = 'Режим карты: offline PNG';
+      document.getElementById('mapModeSelect').value = 'offline';
+    }
+
+    function setOnlineLayer() {
+      if (baseLayer) {
+        map.removeLayer(baseLayer);
+      }
+
+      baseLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        minZoom: 13,
+        maxZoom: 18,
+        attribution: '&copy; OpenStreetMap contributors'
+      });
+
+      baseLayer.on('tileerror', function () {
+        console.warn('Online tiles unavailable. Switching back to offline PNG.');
+        setOfflineLayer();
+      });
+
+      baseLayer.addTo(map);
+      document.getElementById('status').innerText = 'Режим карты: online OSM';
+    }
+
+    function switchMapMode() {
+      const mode = document.getElementById('mapModeSelect').value;
+
+      if (mode === 'online') {
+        setOnlineLayer();
+      } else {
+        setOfflineLayer();
+      }
+    }
+
+    function addLegend() {
+      const legend = L.control({ position: 'bottomright' });
+
+      legend.onAdd = function () {
+        const div = L.DomUtil.create('div', 'legend');
+        div.innerHTML = `
+          <div style="font-weight:700; margin-bottom:8px;">Легенда</div>
+          <div class="legend-item">
+            <span class="legend-dot legend-user"></span>
+            <span>Текущий пользователь</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot legend-blue"></span>
+            <span>Эмулированные пользователи</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot legend-red"></span>
+            <span>Тепловая карта плотности</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot legend-target"></span>
+            <span>Рекомендуемая цель</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-route"></span>
+            <span>Рекомендуемый вектор движения</span>
+          </div>
+        `;
+        return div;
+      };
+
+      legend.addTo(map);
+    }
+
+    function clearLayers() {
+      pointLayers.forEach(layer => map.removeLayer(layer));
+      hotspotLayers.forEach(layer => map.removeLayer(layer));
+      pointLayers = [];
+      hotspotLayers = [];
+
+      if (heatLayer) {
+        map.removeLayer(heatLayer);
+        heatLayer = null;
+      }
+
+      [userLayer, userLabel, targetLayer, targetLabel, routeLayer, arrowHeadLayer, vectorLabel]
+        .forEach(layer => {
+          if (layer) {
+            map.removeLayer(layer);
+          }
+        });
+
+      userLayer = null;
+      userLabel = null;
+      targetLayer = null;
+      targetLabel = null;
+      routeLayer = null;
+      arrowHeadLayer = null;
+      vectorLabel = null;
+    }
+
+    async function loadScenarios() {
+      const res = await fetch('/scenarios');
+      const scenarios = await res.json();
+      const select = document.getElementById('scenarioSelect');
+
+      select.innerHTML = '';
+      scenarios.forEach(s => {
+        const option = document.createElement('option');
+        option.value = s.key;
+        option.textContent = s.name;
+        select.appendChild(option);
+      });
+    }
+
+    async function loadUserPoints() {
+      const res = await fetch('/user-points');
+      const points = await res.json();
+      const select = document.getElementById('userPointSelect');
+
+      select.innerHTML = '';
+      points.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.key;
+        option.textContent = p.name;
+        select.appendChild(option);
+      });
+    }
+
+    function drawUser(userPosition) {
+      userLayer = L.circleMarker([userPosition.lat, userPosition.lon], {
+        radius: 8,
+        color: '#111827',
+        fillColor: '#111827',
+        fillOpacity: 0.98,
+        weight: 2
+      }).addTo(map);
+
+      userLayer.bindPopup('Текущий пользователь');
+
+      userLabel = L.marker([userPosition.lat, userPosition.lon], {
+        icon: L.divIcon({
+          className: '',
+          html: '<div class="user-label">Вы здесь</div>',
+          iconSize: [70, 24],
+          iconAnchor: [-8, 12]
+        })
+      }).addTo(map);
+    }
+
+    function drawVector(userPosition, target) {
+      routeLayer = L.polyline(
+        [
+          [userPosition.lat, userPosition.lon],
+          [target.lat, target.lon]
+        ],
+        {
+          color: '#16a34a',
+          weight: 4,
+          opacity: 0.9,
+          dashArray: '8, 8'
+        }
+      ).addTo(map);
+
+      targetLayer = L.circleMarker([target.lat, target.lon], {
+        radius: 7,
+        color: '#16a34a',
+        fillColor: '#16a34a',
+        fillOpacity: 0.95,
+        weight: 2
+      }).addTo(map);
+
+      targetLabel = L.marker([target.lat, target.lon], {
+        icon: L.divIcon({
+          className: '',
+          html: '<div class="target-label">Цель</div>',
+          iconSize: [56, 24],
+          iconAnchor: [-8, 12]
+        })
+      }).addTo(map);
+
+      const dx = target.lon - userPosition.lon;
+      const dy = target.lat - userPosition.lat;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+
+      const ux = dx / len;
+      const uy = dy / len;
+
+      const perpX = -uy;
+      const perpY = ux;
+
+      const arrowLength = 0.00018;
+      const arrowWidth = 0.00008;
+
+      const arrowTip = [target.lat, target.lon];
+      const arrowLeft = [
+        target.lat - uy * arrowLength + perpY * arrowWidth,
+        target.lon - ux * arrowLength + perpX * arrowWidth
+      ];
+      const arrowRight = [
+        target.lat - uy * arrowLength - perpY * arrowWidth,
+        target.lon - ux * arrowLength - perpX * arrowWidth
+      ];
+
+      arrowHeadLayer = L.polygon([arrowTip, arrowLeft, arrowRight], {
+        color: '#16a34a',
+        fillColor: '#16a34a',
+        fillOpacity: 0.95,
+        weight: 2
+      }).addTo(map);
+
+      const midLat = (userPosition.lat + target.lat) / 2;
+      const midLon = (userPosition.lon + target.lon) / 2;
+
+      vectorLabel = L.marker([midLat, midLon], {
+        icon: L.divIcon({
+          className: '',
+          html: '<div class="vector-label">Рекомендованное направление</div>',
+          iconSize: [170, 24],
+          iconAnchor: [85, 12]
+        })
+      }).addTo(map);
+    }
+
+    async function runAnalysis() {
+      const scenario = document.getElementById('scenarioSelect').value;
+      const mode = document.getElementById('modeSelect').value;
+      const userKey = document.getElementById('userPointSelect').value;
+
+      const res = await fetch(
+        `/analysis?scenario=${scenario}&mode=${mode}&user_key=${userKey}`
+      );
+      const data = await res.json();
+
+      clearLayers();
+      drawUser(data.user_position);
+
+      const heatPoints = data.points.map(p => [
+        p.lat,
+        p.lon,
+        Math.min(p.weight / 15, 1)
+      ]);
+
+      heatLayer = L.heatLayer(heatPoints, {
+        radius: 24,
+        blur: 20,
+        maxZoom: 18,
+        minOpacity: 0.22
+      }).addTo(map);
+
+      data.points.forEach(p => {
+        const marker = L.circleMarker([p.lat, p.lon], {
+          radius: 3 + Math.min(p.weight * 0.35, 4),
+          color: '#1d4ed8',
+          fillColor: '#3b82f6',
+          fillOpacity: 0.90,
+          weight: 1.5
+        }).addTo(map);
+
+        marker.bindPopup(`Эмулированный пользователь<br>Вес: ${p.weight}`);
+        pointLayers.push(marker);
+      });
+
+      data.hotspots.slice(0, 2).forEach((h, index) => {
+        const circle = L.circleMarker([h.lat, h.lon], {
+          radius: index === 0 ? 9 : 7,
+          color: '#b91c1c',
+          fillColor: '#ef4444',
+          fillOpacity: 0.55,
+          weight: 2
+        }).addTo(map);
+
+        circle.bindPopup(
+          `Пик плотности<br>Score: ${h.score}<br>Точек: ${h.count}`
+        );
+        hotspotLayers.push(circle);
+      });
+
+      if (data.recommendation && data.recommendation.target) {
+        drawVector(data.user_position, data.recommendation.target);
+      }
+
+      document.getElementById('assistantText').innerText =
+        data.recommendation.text;
+    }
+
+    setOfflineLayer();
+    map.fitBounds(bounds);
+    addLegend();
+    loadScenarios();
+    loadUserPoints();
+  </script>
+</body>
+</html>
