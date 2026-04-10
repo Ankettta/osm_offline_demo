@@ -10,7 +10,7 @@ USER_POINTS = {
     "metro_nevsky": {
         "name": "У метро Невский проспект",
         "lat": 59.935687,
-        "lon": 30.327232,
+        "lon": 30.327233,
     },
     "griboedov_embankment": {
         "name": "Набережная канала Грибоедова",
@@ -19,7 +19,7 @@ USER_POINTS = {
     },
 }
 
-
+# расстояние между двумя точками где точки в рамках поверхности круглой земли
 def haversine_m(lat1, lon1, lat2, lon2):
     r = 6371000
     phi1 = math.radians(lat1)
@@ -30,7 +30,7 @@ def haversine_m(lat1, lon1, lat2, lon2):
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     return 2 * r * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-
+# координаты в направление
 def direction_text(from_lat, from_lon, to_lat, to_lon):
     dlat = to_lat - from_lat
     dlon = to_lon - from_lon
